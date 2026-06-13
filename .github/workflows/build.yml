@@ -1,0 +1,325 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Run Go tests
+        run: go test ./...
+
+  web:
+    name: Build frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: web
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+        run: npm run build -- --webpack
+
+      - name: Upload frontend for packaging
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/out
+          if-no-files-found: error
+
+      - name: Create standalone frontend archive
+        run: |
+          rm -rf web_dist
+          mkdir -p web_dist
+          cp -R web/out/. web_dist/
+          tar -czf web-dist.tar.gz web_dist
+          sha256sum web-dist.tar.gz > web-dist.tar.gz.sha256
+
+      - name: Upload standalone frontend archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-dist
+          path: |
+            web-dist.tar.gz
+            web-dist.tar.gz.sha256
+          if-no-files-found: error
+
+  package:
+    name: Package ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - web
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            goos: linux
+            goarch: amd64
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: linux-arm64
+            goos: linux
+            goarch: arm64
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: linux-armv7
+            goos: linux
+            goarch: arm
+            goarm: "7"
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: linux-386
+            goos: linux
+            goarch: "386"
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: windows-amd64
+            goos: windows
+            goarch: amd64
+            goarm: ""
+            binary_ext: .exe
+            archive_ext: zip
+          - target: windows-arm64
+            goos: windows
+            goarch: arm64
+            goarm: ""
+            binary_ext: .exe
+            archive_ext: zip
+          - target: windows-386
+            goos: windows
+            goarch: "386"
+            goarm: ""
+            binary_ext: .exe
+            archive_ext: zip
+          - target: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: freebsd-amd64
+            goos: freebsd
+            goarch: amd64
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+          - target: freebsd-arm64
+            goos: freebsd
+            goarch: arm64
+            goarm: ""
+            binary_ext: ""
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web_dist
+
+      - name: Build binary and package release asset
+        env:
+          TARGET: ${{ matrix.target }}
+          GOOS_VALUE: ${{ matrix.goos }}
+          GOARCH_VALUE: ${{ matrix.goarch }}
+          GOARM_VALUE: ${{ matrix.goarm }}
+          BINARY_EXT: ${{ matrix.binary_ext }}
+          ARCHIVE_EXT: ${{ matrix.archive_ext }}
+        run: |
+          set -euo pipefail
+
+          app_name="chatgpt2api-go"
+          package_name="${app_name}-${TARGET}"
+          package_dir="dist/${package_name}"
+          binary_name="${app_name}${BINARY_EXT}"
+
+          rm -rf dist
+          mkdir -p "${package_dir}/bin"
+
+          if [ -n "${GOARM_VALUE}" ]; then
+            export GOARM="${GOARM_VALUE}"
+          fi
+
+          CGO_ENABLED=0 GOOS="${GOOS_VALUE}" GOARCH="${GOARCH_VALUE}" \
+            go build -trimpath -ldflags="-s -w" -o "${package_dir}/bin/${binary_name}" ./cmd/server
+
+          cp "${package_dir}/bin/${binary_name}" "${package_dir}/${binary_name}"
+          cp -R web_dist "${package_dir}/web_dist"
+
+          for file in README.md LICENSE VERSION GO_MIGRATION.md; do
+            if [ -f "${file}" ]; then
+              cp "${file}" "${package_dir}/"
+            fi
+          done
+
+          if [ -f start.sh ]; then
+            cp start.sh "${package_dir}/"
+          fi
+
+          cat > "${package_dir}/config.example.json" <<'JSON'
+          {
+            "server": {
+              "addr": ":3000",
+              "admin_key": "change-me"
+            }
+          }
+          JSON
+
+          cat > "${package_dir}/README_RELEASE.md" <<EOF
+          # ${package_name}
+
+          This archive contains the ${TARGET} server binary and the built frontend files in web_dist/.
+
+          ## Linux, macOS, and FreeBSD
+
+          Run the binary from this directory:
+
+          \`\`\`bash
+          ./${binary_name}
+          \`\`\`
+
+          If start.sh is supported by your shell, you can also run:
+
+          \`\`\`bash
+          ./start.sh --port 3000
+          \`\`\`
+
+          ## Windows
+
+          Run the executable from PowerShell or Command Prompt:
+
+          \`\`\`powershell
+          .\\${binary_name}
+          \`\`\`
+
+          ## Runtime files
+
+          Runtime JSON data, generated images, and logs are stored under data/ in the current working directory.
+          EOF
+
+          if [ "${GOOS_VALUE}" != "windows" ]; then
+            chmod +x "${package_dir}/${binary_name}" "${package_dir}/bin/${binary_name}"
+            if [ -f "${package_dir}/start.sh" ]; then
+              chmod +x "${package_dir}/start.sh"
+            fi
+          fi
+
+          if [ "${ARCHIVE_EXT}" = "zip" ]; then
+            (
+              cd dist
+              zip -qr "${package_name}.zip" "${package_name}"
+              sha256sum "${package_name}.zip" > "${package_name}.zip.sha256"
+            )
+          else
+            (
+              cd dist
+              tar -czf "${package_name}.tar.gz" "${package_name}"
+              sha256sum "${package_name}.tar.gz" > "${package_name}.tar.gz.sha256"
+            )
+          fi
+
+      - name: Upload release asset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
+  github-release:
+    name: Upload GitHub Release assets
+    runs-on: ubuntu-latest
+    needs:
+      - package
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Show release assets
+        run: find release-assets -type f | sort
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release create "${TAG_NAME}" --title "${TAG_NAME}" --notes "Automated release for ${TAG_NAME}."
+          fi
+
+          while IFS= read -r -d '' asset; do
+            gh release upload "${TAG_NAME}" "${asset}" --clobber
+          done < <(find release-assets -type f -print0)

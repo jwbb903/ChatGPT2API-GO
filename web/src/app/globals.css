@@ -1,0 +1,558 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.992 0.002 264);
+  --foreground: oklch(0.18 0.018 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.018 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.018 260);
+  --primary: oklch(0.45 0.18 258);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.005 260);
+  --secondary-foreground: oklch(0.22 0.018 260);
+  --muted: oklch(0.965 0.005 260);
+  --muted-foreground: oklch(0.5 0.012 260);
+  --accent: oklch(0.965 0.005 260);
+  --accent-foreground: oklch(0.22 0.018 260);
+  --destructive: oklch(0.62 0.22 25);
+  --border: oklch(0.92 0.006 260);
+  --input: oklch(0.92 0.006 260);
+  --ring: oklch(0.55 0.16 258);
+  --chart-1: oklch(0.55 0.18 258);
+  --chart-2: oklch(0.7 0.15 162);
+  --chart-3: oklch(0.72 0.16 75);
+  --chart-4: oklch(0.62 0.22 25);
+  --chart-5: oklch(0.6 0.2 300);
+  --sidebar: oklch(0.985 0.003 260);
+  --sidebar-foreground: oklch(0.18 0.018 260);
+  --sidebar-primary: oklch(0.45 0.18 258);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.96 0.005 260);
+  --sidebar-accent-foreground: oklch(0.22 0.018 260);
+  --sidebar-border: oklch(0.92 0.006 260);
+  --sidebar-ring: oklch(0.55 0.16 258);
+  --status-ok: oklch(0.68 0.16 155);
+  --status-warn: oklch(0.78 0.15 75);
+  --status-error: oklch(0.62 0.22 25);
+  --status-info: oklch(0.6 0.16 240);
+  --grid-line: oklch(0.93 0.006 260 / 0.55);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /* App Shell 布局：html/body 自身不滚动，把页面级滚动交给 <main>。
+     好处：
+     ① html/body 永远没有原生滚动条 → 跨页面切换永不左右位移；
+     ② <main> 是普通块元素，scrollbar 出现在 main 右边、距离 viewport 边缘永远 0px，
+        Dialog overlay (fixed inset-0) 直接盖满 viewport，不会再有白条；
+     ③ react-remove-scroll 锁的是 body，但 body 本来就 overflow:hidden、
+        innerWidth - documentWidth = 0，所以它算出 gap = 0，
+        不会再给 body 注入 margin-right:15px 导致内容左移；
+     ④ Notion / Linear / Vercel Dashboard 等都用这套，是 dashboard 类应用的标配。 */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+  html,
+  body {
+    background-color: oklch(0.992 0.002 264);
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: -1px -1px;
+    overscroll-behavior: none;
+  }
+
+  body {
+    @apply text-foreground;
+    font-feature-settings: "cv11", "ss01", "ss03", "cv02";
+  }
+
+  /* 自定义滚动条 - Firefox */
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.85 0.008 260 / 0.55) transparent;
+  }
+
+  /* 自定义滚动条 - WebKit */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: oklch(0.85 0.008 260 / 0.5);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.2s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: oklch(0.7 0.012 260 / 0.7);
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    background-color: oklch(0.55 0.014 260 / 0.85);
+    background-clip: padding-box;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 限高滚动容器（如下拉筛选）使用的细滚动条：
+     比全局默认细一档（6px），thumb 用更柔和的 stone 色，hover 才轻微加深。
+     用 padding-box + transparent border 留出 1px 间隙，避免贴边廉价感。 */
+  .scrollbar-fancy {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.85 0.008 260 / 0.55) transparent;
+  }
+  .scrollbar-fancy::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-fancy::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-fancy::-webkit-scrollbar-thumb {
+    background-color: oklch(0.85 0.008 260 / 0.55);
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.2s ease;
+  }
+  .scrollbar-fancy::-webkit-scrollbar-thumb:hover {
+    background-color: oklch(0.7 0.012 260 / 0.75);
+    background-clip: padding-box;
+  }
+  .scrollbar-fancy::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "ss02", "cv11";
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 路由切换时的内容淡入：opacity + 极轻 translateY，
+   时长 180ms 卡在感知阈值附近，既能让眼睛感觉"换页面了"又不拖沓。 */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 顶部进度条：一根 1/3 宽的渐变胶囊，从左到右循环滑过整个 viewport，
+   感知比按钮 icon 自旋更强，又不会让局部 UI 闪烁。
+   末段加 fade，避免边缘硬切。 */
+@keyframes top-progress-slide {
+  0% {
+    transform: translateX(-50%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(350%);
+    opacity: 0;
+  }
+}
+
+@layer utilities {
+  .animate-page-enter {
+    animation: page-enter 180ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .animate-top-progress {
+    animation: top-progress-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    will-change: transform, opacity;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-enter {
+    animation: none;
+  }
+}
+
+@keyframes aurora-drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -25px) scale(1.06); }
+  66% { transform: translate(-18px, 35px) scale(0.94); }
+}
+
+@keyframes aurora-drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-32px, 22px) scale(1.06); }
+  66% { transform: translate(20px, -32px) scale(0.94); }
+}
+
+@keyframes aurora-spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes torch-wander-a {
+  0%, 100% { transform: translate3d(-15%, -10%, 0) scale(1); }
+  20%      { transform: translate3d(85%, -8%, 0)  scale(1.08); }
+  40%      { transform: translate3d(110%, 70%, 0) scale(0.92); }
+  60%      { transform: translate3d(45%, 115%, 0) scale(1.04); }
+  80%      { transform: translate3d(-10%, 80%, 0) scale(0.96); }
+}
+
+@keyframes torch-wander-b {
+  0%, 100% { transform: translate3d(95%, 85%, 0) scale(0.9); }
+  25%      { transform: translate3d(20%, 95%, 0) scale(1.06); }
+  50%      { transform: translate3d(-15%, 30%, 0) scale(0.85); }
+  75%      { transform: translate3d(70%, -5%, 0) scale(1.02); }
+}
+
+@keyframes torch-mask-a {
+  0%, 100% { -webkit-mask-position: 8% 18%;  mask-position: 8% 18%; }
+  20%      { -webkit-mask-position: 78% 14%; mask-position: 78% 14%; }
+  40%      { -webkit-mask-position: 96% 60%; mask-position: 96% 60%; }
+  60%      { -webkit-mask-position: 60% 92%; mask-position: 60% 92%; }
+  80%      { -webkit-mask-position: 18% 82%; mask-position: 18% 82%; }
+}
+
+@keyframes torch-mask-b {
+  0%, 100% { -webkit-mask-position: 80% 80%; mask-position: 80% 80%; }
+  25%      { -webkit-mask-position: 30% 88%; mask-position: 30% 88%; }
+  50%      { -webkit-mask-position: 12% 28%; mask-position: 12% 28%; }
+  75%      { -webkit-mask-position: 68% 8%;  mask-position: 68% 8%; }
+}
+
+/* ChatGPT 风格 loading：底层是几乎看不见的暗点阵；
+   两个伪元素铺满亮点阵但被圆形 mask 切割成"光斑"，
+   通过 mask-position 让光斑沿不规则路径游走，
+   被照亮的位置那片点才显形。 */
+.dot-grid-loader {
+  overflow: hidden;
+  isolation: isolate;
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.05) 1.1px, transparent 1.6px);
+  background-size: 14px 14px;
+  background-position: 0 0;
+}
+.dot-grid-loader::before,
+.dot-grid-loader::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.62) 1.4px, transparent 1.85px);
+  background-size: 14px 14px;
+  background-position: 0 0;
+  -webkit-mask-image: radial-gradient(circle, black 0%, rgba(0, 0, 0, 0.55) 32%, transparent 68%);
+  mask-image: radial-gradient(circle, black 0%, rgba(0, 0, 0, 0.55) 32%, transparent 68%);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  pointer-events: none;
+  will-change: mask-position;
+}
+.dot-grid-loader::before {
+  -webkit-mask-size: 70% 70%;
+  mask-size: 70% 70%;
+  animation: torch-mask-a 7s ease-in-out infinite;
+}
+.dot-grid-loader::after {
+  -webkit-mask-size: 55% 55%;
+  mask-size: 55% 55%;
+  animation: torch-mask-b 9.5s ease-in-out infinite;
+  animation-delay: -2.5s;
+  opacity: 0.85;
+}
+
+@keyframes image-composer-breathe {
+  0%, 100% {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 4px 24px rgba(15, 23, 42, 0.08),
+      0 0 0 1px rgba(15, 23, 42, 0.045),
+      0 0 0 0 rgba(15, 23, 42, 0.10);
+  }
+  50% {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 12px 34px -18px rgba(15, 23, 42, 0.30),
+      0 0 0 1px rgba(15, 23, 42, 0.12),
+      0 0 34px rgba(15, 23, 42, 0.12);
+  }
+}
+
+.image-composer-running {
+  position: relative;
+  animation: image-composer-breathe 2.7s ease-in-out infinite;
+  will-change: box-shadow;
+}
+
+@layer utilities {
+  .aurora-drift-a {
+    animation: aurora-drift-a 18s ease-in-out infinite;
+    will-change: transform;
+  }
+  .aurora-drift-b {
+    animation: aurora-drift-b 22s ease-in-out infinite;
+    will-change: transform;
+  }
+  .aurora-spin {
+    animation: aurora-spin 60s linear infinite;
+    will-change: transform;
+  }
+  /* 极细颗粒纹理：用 SVG fractalNoise 做 data-uri 背景 */
+  .grain-overlay {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.55 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 160px 160px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-drift-a,
+  .aurora-drift-b,
+  .aurora-spin {
+    animation: none;
+  }
+  .dot-grid-loader::before,
+  .dot-grid-loader::after {
+    animation: none;
+  }
+  .image-composer-running {
+    animation: none;
+  }
+}
+
+/* 聊天气泡内的 markdown：在 .prose 基础上压紧间距、统一字号、复用主题色。
+   规则只在 .chat-md 作用域下生效，避免污染 settings/docs 等其它 prose 区域。*/
+.chat-md {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: oklch(0.96 0 0);
+  --tw-prose-pre-bg: oklch(0.18 0.018 260);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+.chat-md > :first-child { margin-top: 0; }
+.chat-md > :last-child { margin-bottom: 0; }
+.chat-md p,
+.chat-md ul,
+.chat-md ol,
+.chat-md blockquote,
+.chat-md pre,
+.chat-md table { margin-top: 0.5em; margin-bottom: 0.5em; }
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4 { margin-top: 0.85em; margin-bottom: 0.4em; line-height: 1.3; }
+.chat-md h1 { font-size: 1.25em; }
+.chat-md h2 { font-size: 1.15em; }
+.chat-md h3 { font-size: 1.05em; }
+.chat-md h4 { font-size: 1em; }
+.chat-md ul,
+.chat-md ol { padding-left: 1.4em; }
+.chat-md li { margin-top: 0.15em; margin-bottom: 0.15em; }
+.chat-md li > p { margin-top: 0.2em; margin-bottom: 0.2em; }
+.chat-md :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 0.35em;
+  background: color-mix(in oklch, var(--muted) 75%, transparent);
+  font-size: 0.88em;
+  font-weight: 500;
+}
+.chat-md :not(pre) > code::before,
+.chat-md :not(pre) > code::after { content: none; }
+.chat-md pre {
+  padding: 0.85em 1em;
+  border-radius: 0.6em;
+  font-size: 0.85em;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+.chat-md pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
+}
+.chat-md table { font-size: 0.92em; }
+.chat-md blockquote {
+  font-style: normal;
+  padding-left: 0.9em;
+  border-left-width: 3px;
+}
+.chat-md blockquote p::before,
+.chat-md blockquote p::after { content: none; }
+
+.chat-stream-caret {
+  display: inline-block;
+  width: 0.42em;
+  height: 1em;
+  margin-left: 0.12em;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.34;
+  vertical-align: -0.12em;
+  animation: chat-caret-pulse 1.15s ease-in-out infinite;
+}
+
+@keyframes chat-caret-pulse {
+  0%,
+  100% { opacity: 0.22; }
+  45% { opacity: 0.5; }
+}
+
+/* highlight.js github-dark 子集：只覆盖最常见 token，体积比整包小。
+   .hljs 容器自身用 prose 的 pre-bg/pre-code 即可，不再单独着色。 */
+.chat-md .hljs-comment,
+.chat-md .hljs-quote { color: oklch(0.62 0.014 260); font-style: italic; }
+.chat-md .hljs-keyword,
+.chat-md .hljs-selector-tag,
+.chat-md .hljs-literal,
+.chat-md .hljs-section,
+.chat-md .hljs-link { color: oklch(0.78 0.16 320); }
+.chat-md .hljs-string,
+.chat-md .hljs-attr,
+.chat-md .hljs-template-tag,
+.chat-md .hljs-template-variable { color: oklch(0.82 0.15 145); }
+.chat-md .hljs-number,
+.chat-md .hljs-symbol,
+.chat-md .hljs-bullet,
+.chat-md .hljs-meta { color: oklch(0.82 0.14 75); }
+.chat-md .hljs-title,
+.chat-md .hljs-name,
+.chat-md .hljs-type,
+.chat-md .hljs-built_in,
+.chat-md .hljs-class .hljs-title { color: oklch(0.78 0.13 220); }
+.chat-md .hljs-variable,
+.chat-md .hljs-regexp,
+.chat-md .hljs-attribute { color: oklch(0.82 0.14 50); }
+.chat-md .hljs-deletion { color: oklch(0.7 0.2 25); }
+.chat-md .hljs-addition { color: oklch(0.78 0.16 145); }
+.chat-md .hljs-emphasis { font-style: italic; }
+.chat-md .hljs-strong { font-weight: 600; }
