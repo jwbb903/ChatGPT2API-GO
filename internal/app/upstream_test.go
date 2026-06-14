@@ -155,6 +155,60 @@ func TestConversationContentUsesStringTextPartForMultimodalMessages(t *testing.T
 	}
 }
 
+func TestExtractToolIDsAcceptsBareFileIDsInImageToolMessages(t *testing.T) {
+	conv := map[string]any{
+		"mapping": map[string]any{
+			"tool-node": map[string]any{
+				"message": map[string]any{
+					"author":   map[string]any{"role": "tool"},
+					"metadata": map[string]any{"async_task_type": "image_gen"},
+					"content": map[string]any{
+						"content_type": "multimodal_text",
+						"parts": []any{
+							map[string]any{"asset_pointer": "file_result_123"},
+							map[string]any{"asset_pointer": "sediment://sediment_result_456"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fileIDs, sedimentIDs := extractToolIDs(conv)
+	if len(fileIDs) != 1 || fileIDs[0] != "file_result_123" {
+		t.Fatalf("fileIDs = %#v, want [file_result_123]", fileIDs)
+	}
+	if len(sedimentIDs) != 1 || sedimentIDs[0] != "sediment_result_456" {
+		t.Fatalf("sedimentIDs = %#v, want [sediment_result_456]", sedimentIDs)
+	}
+}
+
+func TestExtractToolIDsAcceptsAssistantImageResultMessages(t *testing.T) {
+	conv := map[string]any{
+		"mapping": map[string]any{
+			"assistant-node": map[string]any{
+				"message": map[string]any{
+					"author": map[string]any{"role": "assistant"},
+					"content": map[string]any{
+						"content_type": "multimodal_text",
+						"parts": []any{
+							map[string]any{"asset_pointer": "file-service://file_result_789"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fileIDs, sedimentIDs := extractToolIDs(conv)
+	if len(fileIDs) != 1 || fileIDs[0] != "file_result_789" {
+		t.Fatalf("fileIDs = %#v, want [file_result_789]", fileIDs)
+	}
+	if len(sedimentIDs) != 0 {
+		t.Fatalf("sedimentIDs = %#v, want empty", sedimentIDs)
+	}
+}
+
 func TestChatRequirementsDoesNotFailWhenTurnstileUnsolved(t *testing.T) {
 	client := &UpstreamClient{
 		token:           "access-token",

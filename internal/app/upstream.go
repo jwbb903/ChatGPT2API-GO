@@ -1167,9 +1167,7 @@ func isImageToolEvent(ev map[string]any) bool {
 		if !ok {
 			continue
 		}
-		author, _ := msg["author"].(map[string]any)
-		metadata, _ := msg["metadata"].(map[string]any)
-		if strAny(author["role"], "") == "tool" && strAny(metadata["async_task_type"], "") == "image_gen" {
+		if isPythonImageToolMessage(msg) {
 			return true
 		}
 	}
@@ -1178,13 +1176,27 @@ func isImageToolEvent(ev map[string]any) bool {
 
 func imageIDsFromPayload(v any) ([]string, []string) {
 	b, _ := json.Marshal(v)
-	text := string(b)
+	return imageIDsFromText(string(b))
+}
+
+func imageIDsFromText(text string) ([]string, []string) {
 	fileIDs := []string{}
 	sedimentIDs := []string{}
 	for _, m := range regexp.MustCompile(`file-service://([A-Za-z0-9_-]+)`).FindAllStringSubmatch(text, -1) {
 		if len(m) > 1 {
 			fileIDs = append(fileIDs, m[1])
 		}
+	}
+	for _, m := range regexp.MustCompile(`\bfile[_-][A-Za-z0-9][A-Za-z0-9_-]*`).FindAllStringSubmatch(text, -1) {
+		if len(m) == 0 {
+			continue
+		}
+		candidate := m[0]
+		lower := strings.ToLower(candidate)
+		if lower == "file_upload" || strings.HasPrefix(lower, "file-service") {
+			continue
+		}
+		fileIDs = append(fileIDs, candidate)
 	}
 	for _, m := range regexp.MustCompile(`sediment://([A-Za-z0-9_-]+)`).FindAllStringSubmatch(text, -1) {
 		if len(m) > 1 {
@@ -1268,6 +1280,14 @@ func cleanImageMessage(s string) string {
 	return s
 }
 func extractToolIDs(conv map[string]any) ([]string, []string) {
+	fileIDs, sedimentIDs := extractPythonImageToolIDs(conv)
+	fallbackFileIDs, fallbackSedimentIDs := extractFallbackImageIDs(conv)
+	fileIDs = append(fileIDs, fallbackFileIDs...)
+	sedimentIDs = append(sedimentIDs, fallbackSedimentIDs...)
+	return unique(fileIDs), unique(sedimentIDs)
+}
+
+func extractPythonImageToolIDs(conv map[string]any) ([]string, []string) {
 	fileIDs := []string{}
 	sedimentIDs := []string{}
 	filePat := regexp.MustCompile(`file-service://([A-Za-z0-9_-]+)`)
@@ -1279,15 +1299,10 @@ func extractToolIDs(conv map[string]any) ([]string, []string) {
 				continue
 			}
 			msg, ok := node["message"].(map[string]any)
-			if !ok {
+			if !ok || !isPythonImageToolMessage(msg) {
 				continue
 			}
-			author, _ := msg["author"].(map[string]any)
-			metadata, _ := msg["metadata"].(map[string]any)
 			content, _ := msg["content"].(map[string]any)
-			if strAny(author["role"], "") != "tool" || strAny(metadata["async_task_type"], "") != "image_gen" || strAny(content["content_type"], "") != "multimodal_text" {
-				continue
-			}
 			if parts, ok := content["parts"].([]any); ok {
 				for _, part := range parts {
 					text := ""
@@ -1311,6 +1326,56 @@ func extractToolIDs(conv map[string]any) ([]string, []string) {
 		}
 	}
 	return unique(fileIDs), unique(sedimentIDs)
+}
+
+func extractFallbackImageIDs(conv map[string]any) ([]string, []string) {
+	fileIDs := []string{}
+	sedimentIDs := []string{}
+	if mapping, ok := conv["mapping"].(map[string]any); ok {
+		for _, rawNode := range mapping {
+			node, ok := rawNode.(map[string]any)
+			if !ok {
+				continue
+			}
+			msg, ok := node["message"].(map[string]any)
+			if !ok || !isFallbackImageResultMessage(msg) {
+				continue
+			}
+			f, s := imageIDsFromPayload(msg)
+			fileIDs = append(fileIDs, f...)
+			sedimentIDs = append(sedimentIDs, s...)
+		}
+	}
+	return unique(fileIDs), unique(sedimentIDs)
+}
+
+func isPythonImageToolMessage(msg map[string]any) bool {
+	author, _ := msg["author"].(map[string]any)
+	metadata, _ := msg["metadata"].(map[string]any)
+	content, _ := msg["content"].(map[string]any)
+	return strAny(author["role"], "") == "tool" &&
+		strAny(metadata["async_task_type"], "") == "image_gen" &&
+		strAny(content["content_type"], "") == "multimodal_text"
+}
+
+func isFallbackImageResultMessage(msg map[string]any) bool {
+	author, _ := msg["author"].(map[string]any)
+	metadata, _ := msg["metadata"].(map[string]any)
+	content, _ := msg["content"].(map[string]any)
+	role := strAny(author["role"], "")
+	asyncTaskType := strAny(metadata["async_task_type"], "")
+	contentType := strAny(content["content_type"], "")
+	if role == "user" {
+		return false
+	}
+	if role == "tool" && asyncTaskType == "image_gen" {
+		return true
+	}
+	if role == "assistant" && (asyncTaskType == "image_gen" || contentType == "multimodal_text") {
+		f, s := imageIDsFromPayload(msg)
+		return len(f) > 0 || len(s) > 0
+	}
+	return false
 }
 func unique(in []string) []string {
 	seen := map[string]bool{}
