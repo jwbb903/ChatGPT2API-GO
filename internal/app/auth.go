@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 )
 
 func normalizeKeys(items []UserKey) []UserKey {
@@ -377,32 +376,35 @@ func (s *Server) consumeQuota(id string, n int, image bool) bool {
 	if n < 1 {
 		n = 1
 	}
-	keys := s.store.LoadAuthKeys()
-	for i, k := range keys {
-		if k.ID != id {
-			continue
-		}
-		resetPeriods(&k)
-		if image {
-			if !enough(k.ImageDailyQuota, k.ImageDailyUsed, k.ImageDailyUnlimited, n) || !enough(k.ImageMonthlyQuota, k.ImageMonthlyUsed, k.ImageMonthlyUnlimited, n) || !enough(k.ImageTotalQuota, k.ImageTotalUsed, k.ImageTotalUnlimited, n) {
-				return false
+	consumed := false
+	_ = s.store.UpdateAuthKeys(func(keys []UserKey) []UserKey {
+		for i, k := range keys {
+			if k.ID != id {
+				continue
 			}
-			k.ImageDailyUsed += n
-			k.ImageMonthlyUsed += n
-			k.ImageTotalUsed += n
-		} else {
-			if !enough(k.ChatDailyQuota, k.ChatDailyUsed, k.ChatDailyUnlimited, n) || !enough(k.ChatMonthlyQuota, k.ChatMonthlyUsed, k.ChatMonthlyUnlimited, n) || !enough(k.ChatTotalQuota, k.ChatTotalUsed, k.ChatTotalUnlimited, n) {
-				return false
+			resetPeriods(&k)
+			if image {
+				if !enough(k.ImageDailyQuota, k.ImageDailyUsed, k.ImageDailyUnlimited, n) || !enough(k.ImageMonthlyQuota, k.ImageMonthlyUsed, k.ImageMonthlyUnlimited, n) || !enough(k.ImageTotalQuota, k.ImageTotalUsed, k.ImageTotalUnlimited, n) {
+					return keys
+				}
+				k.ImageDailyUsed += n
+				k.ImageMonthlyUsed += n
+				k.ImageTotalUsed += n
+			} else {
+				if !enough(k.ChatDailyQuota, k.ChatDailyUsed, k.ChatDailyUnlimited, n) || !enough(k.ChatMonthlyQuota, k.ChatMonthlyUsed, k.ChatMonthlyUnlimited, n) || !enough(k.ChatTotalQuota, k.ChatTotalUsed, k.ChatTotalUnlimited, n) {
+					return keys
+				}
+				k.ChatDailyUsed += n
+				k.ChatMonthlyUsed += n
+				k.ChatTotalUsed += n
 			}
-			k.ChatDailyUsed += n
-			k.ChatMonthlyUsed += n
-			k.ChatTotalUsed += n
+			keys[i] = k
+			consumed = true
+			return keys
 		}
-		keys[i] = k
-		_ = s.store.SaveAuthKeys(keys)
-		return true
-	}
-	return false
+		return keys
+	})
+	return consumed
 }
 func (s *Server) refundImage(id *Identity, n int) {
 	if id == nil || id.Role == "admin" || n <= 0 {
@@ -417,24 +419,25 @@ func (s *Server) refundChat(id *Identity, n int) {
 	s.refundQuota(id.ID, n, false)
 }
 func (s *Server) refundQuota(id string, n int, image bool) {
-	keys := s.store.LoadAuthKeys()
-	for i, k := range keys {
-		if k.ID != id {
-			continue
+	_ = s.store.UpdateAuthKeys(func(keys []UserKey) []UserKey {
+		for i, k := range keys {
+			if k.ID != id {
+				continue
+			}
+			if image {
+				k.ImageDailyUsed = maxInt(0, k.ImageDailyUsed-n)
+				k.ImageMonthlyUsed = maxInt(0, k.ImageMonthlyUsed-n)
+				k.ImageTotalUsed = maxInt(0, k.ImageTotalUsed-n)
+			} else {
+				k.ChatDailyUsed = maxInt(0, k.ChatDailyUsed-n)
+				k.ChatMonthlyUsed = maxInt(0, k.ChatMonthlyUsed-n)
+				k.ChatTotalUsed = maxInt(0, k.ChatTotalUsed-n)
+			}
+			keys[i] = k
+			return keys
 		}
-		if image {
-			k.ImageDailyUsed = maxInt(0, k.ImageDailyUsed-n)
-			k.ImageMonthlyUsed = maxInt(0, k.ImageMonthlyUsed-n)
-			k.ImageTotalUsed = maxInt(0, k.ImageTotalUsed-n)
-		} else {
-			k.ChatDailyUsed = maxInt(0, k.ChatDailyUsed-n)
-			k.ChatMonthlyUsed = maxInt(0, k.ChatMonthlyUsed-n)
-			k.ChatTotalUsed = maxInt(0, k.ChatTotalUsed-n)
-		}
-		keys[i] = k
-		_ = s.store.SaveAuthKeys(keys)
-		return
-	}
+		return keys
+	})
 }
 func maxInt(a, b int) int {
 	if a > b {
@@ -461,5 +464,3 @@ func resetPeriods(k *UserKey) {
 		k.ChatMonthlyResetAt = monthKey()
 	}
 }
-
-var _ = time.Now

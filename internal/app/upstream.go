@@ -1631,21 +1631,20 @@ func (s *Server) upstreamClientForImageExcluding(model, resolution string, exclu
 	if err != nil {
 		return nil, err
 	}
-	return s.upstreamClientForImageAccount(model, resolution, account)
+	client, _, err := s.upstreamClientForImageAccount(model, resolution, account)
+	return client, err
 }
 
-func (s *Server) upstreamClientForImageAccount(model, resolution string, account Account) (*UpstreamClient, error) {
+func (s *Server) upstreamClientForImageAccount(model, resolution string, account Account) (*UpstreamClient, Account, error) {
 	if isCodexImageRequest(model, resolution) {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		if refreshed, err := s.refreshOAuthAccessToken(ctx, account.AccessToken); err == nil && refreshed != "" {
-			account.AccessToken = refreshed
+		if refreshed, err := s.refreshOAuthAccount(ctx, account.AccessToken); err == nil && refreshed.AccessToken != "" {
+			account = refreshed
 		}
 	}
-	return NewUpstreamClientForAccount(account, s.cfg.Proxy, s.ensureCurlImpersonateBinary)
+	client, err := NewUpstreamClientForAccount(account, s.cfg.Proxy, s.ensureCurlImpersonateBinary)
+	return client, account, err
 }
 
 func init() { rand.Seed(time.Now().UnixNano()) }
-
-var _ = os.ReadFile
-var _ = sort.Strings

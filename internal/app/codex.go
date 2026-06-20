@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	http "github.com/bogdanfinn/fhttp"
 )
@@ -18,6 +17,16 @@ const codexImageInstruction = "You are an image generation assistant."
 func isCodexImageRequest(model, resolution string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	return strings.Contains(m, "codex-gpt-image-2") || normalizeResolution(resolution) == "2k" || normalizeResolution(resolution) == "4k"
+}
+
+func codexPlanTypeFromModel(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	for _, plan := range []string{"plus", "team", "pro"} {
+		if strings.HasPrefix(m, plan+"-codex-gpt-image-2") {
+			return plan
+		}
+	}
+	return ""
 }
 
 func normalizeResolution(v string) string {
@@ -217,21 +226,4 @@ func chatGPTAccountID(token string) string {
 		return strings.TrimSpace(strAny(auth["chatgpt_account_id"], ""))
 	}
 	return ""
-}
-
-func markAccountRateLimited(a *Account, errText string) {
-	now := nowISO()
-	a.Status = "限流"
-	a.Fail++
-	a.LastUsedAt = &now
-	reset := time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
-	a.RestoreAt = &reset
-}
-
-func markAccountInvalid(a *Account) {
-	now := nowISO()
-	a.Status = "异常"
-	a.Quota = 0
-	a.Fail++
-	a.LastUsedAt = &now
 }

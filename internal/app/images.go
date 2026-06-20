@@ -4,14 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/md5"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
-	"image/png"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,37 +14,6 @@ import (
 	"strings"
 	"time"
 )
-
-func (s *Server) makePlaceholder(prompt, size string) ([]byte, error) {
-	w, h := 1024, 1024
-	switch size {
-	case "16:9":
-		w, h = 1280, 720
-	case "9:16":
-		w, h = 720, 1280
-	case "4:3":
-		w, h = 1152, 864
-	case "3:4":
-		w, h = 864, 1152
-	}
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	seed := md5.Sum([]byte(prompt))
-	c1 := color.RGBA{seed[0], seed[1], seed[2], 255}
-	c2 := color.RGBA{seed[3], seed[4], seed[5], 255}
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			t := float64(x+y) / float64(w+h)
-			img.SetRGBA(x, y, color.RGBA{uint8(float64(c1.R)*(1-t) + float64(c2.R)*t), uint8(float64(c1.G)*(1-t) + float64(c2.G)*t), uint8(float64(c1.B)*(1-t) + float64(c2.B)*t), 255})
-		}
-	}
-	for i := 0; i < 8; i++ {
-		r := image.Rect((i+1)*w/12, (i+1)*h/12, (i+4)*w/12, (i+2)*h/12)
-		draw.Draw(img, r, &image.Uniform{color.RGBA{255, 255, 255, 40}}, image.Point{}, draw.Over)
-	}
-	var buf bytes.Buffer
-	err := png.Encode(&buf, img)
-	return buf.Bytes(), err
-}
 
 func (s *Server) saveImage(r *http.Request, data []byte) (string, string, error) {
 	s.cleanupOldImages()
@@ -68,14 +31,19 @@ func (s *Server) saveImage(r *http.Request, data []byte) (string, string, error)
 	return rel, s.baseURL(r) + "/images/" + rel, nil
 }
 func (s *Server) recordOwner(id *Identity, rel string) {
-	owners := s.store.LoadOwners()
-	owners[rel] = id.ID
-	_ = s.store.SaveOwners(owners)
+	if id == nil {
+		return
+	}
+	_ = s.store.UpdateOwners(func(owners map[string]string) map[string]string {
+		owners[rel] = id.ID
+		return owners
+	})
 }
 func (s *Server) recordPrompt(rel, prompt string, isEdit bool) {
-	ps := s.store.LoadPrompts()
-	ps[rel] = map[string]any{"prompt": prompt, "is_edit": isEdit, "created_at": time.Now().Unix()}
-	_ = s.store.SavePrompts(ps)
+	_ = s.store.UpdatePrompts(func(ps map[string]map[string]any) map[string]map[string]any {
+		ps[rel] = map[string]any{"prompt": prompt, "is_edit": isEdit, "created_at": time.Now().Unix()}
+		return ps
+	})
 }
 func (s *Server) cleanupOldImages() int {
 	days := s.cfg.ImageRetentionDays
@@ -140,6 +108,34 @@ func relFromURL(u string) string {
 		return relClean(u[i+8:])
 	}
 	return relClean(u)
+}
+
+func safeImageRel(value string) (string, error) {
+	rel := relClean(value)
+	if rel == "" {
+		return "", fmt.Errorf("image path is required")
+	}
+	if filepath.IsAbs(rel) {
+		return "", fmt.Errorf("invalid image path")
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+	if cleaned == "." || cleaned == "" || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("invalid image path")
+	}
+	return cleaned, nil
+}
+
+func (s *Server) imagePath(rel string) (string, error) {
+	cleaned, err := safeImageRel(rel)
+	if err != nil {
+		return "", err
+	}
+	base := filepath.Clean(s.imagesDir)
+	target := filepath.Clean(filepath.Join(base, filepath.FromSlash(cleaned)))
+	if target != base && !strings.HasPrefix(target, base+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid image path")
+	}
+	return target, nil
 }
 
 func (s *Server) listImages(r *http.Request, ownerFilter string) map[string]any {
@@ -222,11 +218,18 @@ func (s *Server) handleImageDelete(w http.ResponseWriter, r *http.Request) {
 	owners := s.store.LoadOwners()
 	removed := 0
 	for _, p := range b.Paths {
-		rel := relClean(p)
+		rel, err := safeImageRel(p)
+		if err != nil {
+			continue
+		}
 		if id.Role != "admin" && owners[rel] != id.ID {
 			continue
 		}
-		if os.Remove(filepath.Join(s.imagesDir, filepath.FromSlash(rel))) == nil {
+		path, err := s.imagePath(rel)
+		if err != nil {
+			continue
+		}
+		if os.Remove(path) == nil {
 			removed++
 			delete(owners, rel)
 		}
@@ -245,8 +248,15 @@ func (s *Server) handleImageDownload(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	for _, p := range b.Paths {
-		rel := relClean(p)
-		data, err := os.ReadFile(filepath.Join(s.imagesDir, filepath.FromSlash(rel)))
+		rel, err := safeImageRel(p)
+		if err != nil {
+			continue
+		}
+		path, err := s.imagePath(rel)
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(path)
 		if err == nil {
 			f, _ := zw.Create(filepath.Base(rel))
 			_, _ = f.Write(data)
@@ -261,8 +271,17 @@ func (s *Server) handleImageDownloadSingle(w http.ResponseWriter, r *http.Reques
 	if _, ok := s.requireAdmin(w, r); !ok {
 		return
 	}
-	rel := strings.TrimPrefix(r.URL.Path, "/api/images/download/")
-	http.ServeFile(w, r, filepath.Join(s.imagesDir, filepath.FromSlash(rel)))
+	rel, err := safeImageRel(strings.TrimPrefix(r.URL.Path, "/api/images/download/"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	path, err := s.imagePath(rel)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 func (s *Server) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/image-thumbnails/")
@@ -324,6 +343,3 @@ func (s *Server) handleImageTagDelete(w http.ResponseWriter, r *http.Request) {
 	_ = s.store.SaveTags(tags)
 	writeJSON(w, 200, map[string]any{"ok": true, "removed_from": n})
 }
-
-var _ = base64.StdEncoding
-var _ = io.Copy

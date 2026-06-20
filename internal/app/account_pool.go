@@ -40,10 +40,10 @@ func parseAccountTime(value string) (time.Time, error) {
 }
 
 func (p *accountPool) pickToken(accounts []Account, needCodex bool) (string, error) {
-	return p.pickTokenExcluding(accounts, needCodex, nil)
+	return p.pickTokenExcluding(accounts, needCodex, "", nil)
 }
 
-func (p *accountPool) pickTokenExcluding(accounts []Account, needCodex bool, excluded map[string]bool) (string, error) {
+func (p *accountPool) pickTokenExcluding(accounts []Account, needCodex bool, codexPlanType string, excluded map[string]bool) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	maxConc := p.cfg.ImageAccountConcurrency
@@ -79,10 +79,15 @@ func (p *accountPool) pickTokenExcluding(accounts []Account, needCodex bool, exc
 			continue
 		}
 		if needCodex {
+			accountType := strings.ToLower(a.Type)
 			if strings.ToLower(a.SourceType) != "codex" {
 				continue
 			}
-			if !premium[strings.ToLower(a.Type)] {
+			if codexPlanType != "" {
+				if accountType != codexPlanType {
+					continue
+				}
+			} else if !premium[accountType] {
 				continue
 			}
 		}
@@ -152,7 +157,7 @@ func (s *Server) pickTokenExcluding(model, resolution string, excluded map[strin
 func (s *Server) pickAccountExcluding(model, resolution string, excluded map[string]bool) (Account, error) {
 	accounts := s.store.LoadAccounts()
 	needCodex := isCodexImageRequest(model, resolution)
-	token, err := s.accountPool.pickTokenExcluding(accounts, needCodex, excluded)
+	token, err := s.accountPool.pickTokenExcluding(accounts, needCodex, codexPlanTypeFromModel(model), excluded)
 	if err != nil {
 		return Account{}, err
 	}

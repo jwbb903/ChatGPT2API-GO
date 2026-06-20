@@ -76,57 +76,59 @@ func (s *Server) markAccountSuccess(token string, image bool) {
 	if token == "" {
 		return
 	}
-	accounts := s.store.LoadAccounts()
 	now := nowISO()
-	for i := range accounts {
-		if accounts[i].AccessToken != token {
-			continue
+	_ = s.store.UpdateAccounts(func(accounts []Account) []Account {
+		for i := range accounts {
+			if accounts[i].AccessToken != token {
+				continue
+			}
+			accounts[i].Success++
+			accounts[i].LastUsedAt = &now
+			if image && !accounts[i].ImageQuotaUnknown && accounts[i].Quota > 0 {
+				accounts[i].Quota--
+			}
+			if accounts[i].Status == "限流" && (accounts[i].ImageQuotaUnknown || accounts[i].Quota > 0) {
+				accounts[i].Status = "正常"
+				accounts[i].RestoreAt = nil
+				accounts[i].RateLimitedAt = nil
+				accounts[i].RateLimitResetAt = nil
+			}
+			return accounts
 		}
-		accounts[i].Success++
-		accounts[i].LastUsedAt = &now
-		if image && !accounts[i].ImageQuotaUnknown && accounts[i].Quota > 0 {
-			accounts[i].Quota--
-		}
-		if accounts[i].Status == "限流" && (accounts[i].ImageQuotaUnknown || accounts[i].Quota > 0) {
-			accounts[i].Status = "正常"
-			accounts[i].RestoreAt = nil
-			accounts[i].RateLimitedAt = nil
-			accounts[i].RateLimitResetAt = nil
-		}
-		_ = s.store.SaveAccounts(accounts)
-		return
-	}
+		return accounts
+	})
 }
 
 func (s *Server) markAccountFailure(token string, err error, image bool) {
 	if token == "" {
 		return
 	}
-	accounts := s.store.LoadAccounts()
 	now := nowISO()
-	for i := range accounts {
-		if accounts[i].AccessToken != token {
-			continue
-		}
-		accounts[i].Fail++
-		accounts[i].LastUsedAt = &now
-		if isRateLimitErrorText(err) {
-			accounts[i].Status = "限流"
-			reset := time.Now().UTC().Add(rateLimitRestoreDelay(err)).Format(time.RFC3339)
-			accounts[i].RestoreAt = &reset
-			accounts[i].RateLimitResetAt = &reset
-			accounts[i].RateLimitedAt = &now
-			if s.cfg.AutoRemoveRateLimitedAccounts {
-				accounts = append(accounts[:i], accounts[i+1:]...)
+	_ = s.store.UpdateAccounts(func(accounts []Account) []Account {
+		for i := range accounts {
+			if accounts[i].AccessToken != token {
+				continue
 			}
-		} else if isInvalidTokenErrorText(err) {
-			accounts[i].Status = "异常"
-			accounts[i].Quota = 0
-			if s.cfg.AutoRemoveInvalidAccounts {
-				accounts = append(accounts[:i], accounts[i+1:]...)
+			accounts[i].Fail++
+			accounts[i].LastUsedAt = &now
+			if isRateLimitErrorText(err) {
+				accounts[i].Status = "限流"
+				reset := time.Now().UTC().Add(rateLimitRestoreDelay(err)).Format(time.RFC3339)
+				accounts[i].RestoreAt = &reset
+				accounts[i].RateLimitResetAt = &reset
+				accounts[i].RateLimitedAt = &now
+				if s.cfg.AutoRemoveRateLimitedAccounts {
+					accounts = append(accounts[:i], accounts[i+1:]...)
+				}
+			} else if isInvalidTokenErrorText(err) {
+				accounts[i].Status = "异常"
+				accounts[i].Quota = 0
+				if s.cfg.AutoRemoveInvalidAccounts {
+					accounts = append(accounts[:i], accounts[i+1:]...)
+				}
 			}
+			return accounts
 		}
-		_ = s.store.SaveAccounts(accounts)
-		return
-	}
+		return accounts
+	})
 }

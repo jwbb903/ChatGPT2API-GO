@@ -22,18 +22,21 @@ func (s *Server) generateImageWithPool(ctx context.Context, prompt, model, size,
 			}
 			return nil, err
 		}
-		client, err := s.upstreamClientForImageAccount(model, resolution, account)
+		client, actualAccount, err := s.upstreamClientForImageAccount(model, resolution, account)
 		if err != nil {
+			s.accountPool.releaseToken(account.AccessToken)
 			if lastErr != nil {
 				return nil, lastErr
 			}
 			return nil, err
 		}
-		token := account.AccessToken
-		traceLogf(ctx, "│  ├─ selected image account %s", accountLabel(account))
+		poolToken := account.AccessToken
+		token := actualAccount.AccessToken
+		traceLogf(ctx, "│  ├─ selected image account %s", accountLabel(actualAccount))
+		excluded[poolToken] = true
 		excluded[token] = true
 		items, err := client.GenerateImage(ctx, prompt, model, size, resolution, refs)
-		s.accountPool.releaseToken(token)
+		s.accountPool.releaseToken(poolToken)
 		if err == nil {
 			traceLogf(ctx, "└─ image account attempt %d success images=%d", attempt+1, len(items))
 			s.markAccountSuccess(token, true)

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func (s *Server) thumbnailPath(rel string) string {
@@ -15,13 +14,21 @@ func (s *Server) thumbnailPath(rel string) string {
 }
 
 func (s *Server) serveThumbnail(w http.ResponseWriter, r *http.Request, rel string) {
-	rel = relClean(rel)
+	rel, err := safeImageRel(rel)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	thumb := s.thumbnailPath(rel)
 	if _, err := os.Stat(thumb); err == nil {
 		http.ServeFile(w, r, thumb)
 		return
 	}
-	src := filepath.Join(s.imagesDir, filepath.FromSlash(rel))
+	src, err := s.imagePath(rel)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	f, err := os.Open(src)
 	if err != nil {
 		http.NotFound(w, r)
@@ -65,9 +72,4 @@ func (s *Server) serveThumbnail(w http.ResponseWriter, r *http.Request, rel stri
 	defer out.Close()
 	_ = jpeg.Encode(out, dst, &jpeg.Options{Quality: 82})
 	http.ServeFile(w, r, thumb)
-}
-
-func isImagePath(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp"
 }

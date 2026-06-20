@@ -14,7 +14,7 @@ import (
 const codexOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const codexOAuthTokenURL = "https://auth.openai.com/oauth/token"
 
-func (s *Server) refreshOAuthAccessToken(ctx context.Context, oldToken string) (string, error) {
+func (s *Server) refreshOAuthAccount(ctx context.Context, oldToken string) (Account, error) {
 	accounts := s.store.LoadAccounts()
 	idx := -1
 	var account Account
@@ -26,11 +26,11 @@ func (s *Server) refreshOAuthAccessToken(ctx context.Context, oldToken string) (
 		}
 	}
 	if idx < 0 || account.RefreshToken == nil || strings.TrimSpace(*account.RefreshToken) == "" {
-		return "", fmt.Errorf("refresh_token not found")
+		return Account{}, fmt.Errorf("refresh_token not found")
 	}
 	client, err := NewUpstreamClient("", s.cfg.Proxy, s.ensureCurlImpersonateBinary)
 	if err != nil {
-		return "", err
+		return Account{}, err
 	}
 	clientID := codexOAuthClientID
 	if account.ClientID != nil && strings.TrimSpace(*account.ClientID) != "" {
@@ -43,25 +43,25 @@ func (s *Server) refreshOAuthAccessToken(ctx context.Context, oldToken string) (
 	form.Set("scope", "openid profile email")
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, codexOAuthTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", err
+		return Account{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.client.Do(req)
 	if err != nil {
-		return "", err
+		return Account{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("oauth refresh failed: status=%d", resp.StatusCode)
+		return Account{}, fmt.Errorf("oauth refresh failed: status=%d", resp.StatusCode)
 	}
 	var payload map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", err
+		return Account{}, err
 	}
 	newToken := strings.TrimSpace(strAny(payload["access_token"], ""))
 	if newToken == "" {
-		return "", fmt.Errorf("oauth refresh response missing access_token")
+		return Account{}, fmt.Errorf("oauth refresh response missing access_token")
 	}
 	refreshToken := strings.TrimSpace(strAny(payload["refresh_token"], ""))
 	if refreshToken == "" && account.RefreshToken != nil {
@@ -86,7 +86,15 @@ func (s *Server) refreshOAuthAccessToken(ctx context.Context, oldToken string) (
 	}
 	accounts[idx] = account
 	_ = s.store.SaveAccounts(accounts)
-	return newToken, nil
+	return account, nil
+}
+
+func (s *Server) refreshOAuthAccessToken(ctx context.Context, oldToken string) (string, error) {
+	account, err := s.refreshOAuthAccount(ctx, oldToken)
+	if err != nil {
+		return "", err
+	}
+	return account.AccessToken, nil
 }
 
 func (s *Server) upstreamClientForTokenWithRefresh(ctx context.Context, token string) (*UpstreamClient, error) {

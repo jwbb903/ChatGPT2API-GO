@@ -83,6 +83,13 @@ func (s *Store) SaveAccounts(items []Account) error {
 	return writeJSONFile(s.path("accounts.json"), items)
 }
 
+func (s *Store) UpdateAccounts(fn func([]Account) []Account) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := readJSONFile(s.path("accounts.json"), []Account{})
+	return writeJSONFile(s.path("accounts.json"), fn(items))
+}
+
 type authKeysWrap struct {
 	Items []UserKey `json:"items"`
 }
@@ -105,6 +112,18 @@ func (s *Store) SaveAuthKeys(items []UserKey) error {
 	return writeJSONFile(s.path("auth_keys.json"), authKeysWrap{Items: items})
 }
 
+func (s *Store) UpdateAuthKeys(fn func([]UserKey) []UserKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := s.path("auth_keys.json")
+	wrap := readJSONFile(path, authKeysWrap{})
+	items := wrap.Items
+	if len(items) == 0 {
+		items = readJSONFile(path, []UserKey{})
+	}
+	return writeJSONFile(path, authKeysWrap{Items: fn(normalizeKeys(items))})
+}
+
 func (s *Store) LoadGallery() []GalleryItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -115,15 +134,11 @@ func (s *Store) SaveGallery(items []GalleryItem) error {
 	defer s.mu.Unlock()
 	return writeJSONFile(s.path("gallery.json"), items)
 }
-func (s *Store) LoadLogs() []LogItem {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return readJSONFile(s.path("logs.json"), []LogItem{})
-}
-func (s *Store) SaveLogs(items []LogItem) error {
+func (s *Store) UpdateGallery(fn func([]GalleryItem) []GalleryItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return writeJSONFile(s.path("logs.json"), items)
+	items := readJSONFile(s.path("gallery.json"), []GalleryItem{})
+	return writeJSONFile(s.path("gallery.json"), fn(items))
 }
 func (s *Store) LoadTasks() []ImageTask {
 	s.mu.RLock()
@@ -135,6 +150,12 @@ func (s *Store) SaveTasks(items []ImageTask) error {
 	defer s.mu.Unlock()
 	return writeJSONFile(s.path("image_tasks.json"), items)
 }
+func (s *Store) UpdateTasks(fn func([]ImageTask) []ImageTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := readJSONFile(s.path("image_tasks.json"), []ImageTask{})
+	return writeJSONFile(s.path("image_tasks.json"), fn(items))
+}
 func (s *Store) LoadOwners() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -145,6 +166,12 @@ func (s *Store) SaveOwners(items map[string]string) error {
 	defer s.mu.Unlock()
 	return writeJSONFile(s.path("image_owners.json"), items)
 }
+func (s *Store) UpdateOwners(fn func(map[string]string) map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := readJSONFile(s.path("image_owners.json"), map[string]string{})
+	return writeJSONFile(s.path("image_owners.json"), fn(items))
+}
 func (s *Store) LoadPrompts() map[string]map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -154,6 +181,12 @@ func (s *Store) SavePrompts(items map[string]map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return writeJSONFile(s.path("image_prompts.json"), items)
+}
+func (s *Store) UpdatePrompts(fn func(map[string]map[string]any) map[string]map[string]any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := readJSONFile(s.path("image_prompts.json"), map[string]map[string]any{})
+	return writeJSONFile(s.path("image_prompts.json"), fn(items))
 }
 func (s *Store) LoadTags() map[string][]string {
 	s.mu.RLock()
@@ -174,6 +207,12 @@ func (s *Store) SaveList(name string, v []map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return writeJSONFile(s.path(name), v)
+}
+func (s *Store) UpdateList(name string, fn func([]map[string]any) []map[string]any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := readJSONFile(s.path(name), []map[string]any{})
+	return writeJSONFile(s.path(name), fn(items))
 }
 
 func ensureNotDir(path string) error {

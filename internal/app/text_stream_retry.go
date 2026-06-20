@@ -1,9 +1,6 @@
 package app
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 type upstreamStreamAttempt struct {
 	Client *UpstreamClient
@@ -89,8 +86,4 @@ func (s *Server) collectTextWithRetry(ctx context.Context, messages []map[string
 		return "", err
 	}
 	return text, nil
-}
-
-func terminalStreamErr(err error) bool {
-	return err != nil && !errors.Is(err, context.Canceled)
 }

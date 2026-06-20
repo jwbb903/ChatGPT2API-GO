@@ -391,6 +391,3 @@ func (s *Server) handleNamedListID(w http.ResponseWriter, r *http.Request, prefi
 	}
 	writeErr(w, 405, "method not allowed")
 }
-
-var _ = json.Marshal
-var _ = url.QueryEscape

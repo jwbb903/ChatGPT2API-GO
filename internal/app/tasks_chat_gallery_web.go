@@ -70,16 +70,15 @@ func (s *Server) saveTask(t ImageTask) {
 }
 func (s *Server) upsertTask(t ImageTask) {
 	t.UpdatedAt = nowISO()
-	tasks := s.store.LoadTasks()
-	for i := range tasks {
-		if tasks[i].ID == t.ID {
-			tasks[i] = t
-			_ = s.store.SaveTasks(tasks)
-			return
+	_ = s.store.UpdateTasks(func(tasks []ImageTask) []ImageTask {
+		for i := range tasks {
+			if tasks[i].ID == t.ID {
+				tasks[i] = t
+				return tasks
+			}
 		}
-	}
-	tasks = append([]ImageTask{t}, tasks...)
-	_ = s.store.SaveTasks(tasks)
+		return append([]ImageTask{t}, tasks...)
+	})
 }
 func (s *Server) setTaskCancel(id string, cancel context.CancelFunc) {
 	s.taskMu.Lock()
@@ -142,17 +141,18 @@ func (s *Server) cleanupOldTasks() {
 }
 
 func (s *Server) updateTaskStatus(id, status, errText string, data []map[string]any) {
-	tasks := s.store.LoadTasks()
-	for i := range tasks {
-		if tasks[i].ID == id {
-			tasks[i].Status = status
-			tasks[i].Error = errText
-			tasks[i].Data = data
-			tasks[i].UpdatedAt = nowISO()
-			_ = s.store.SaveTasks(tasks)
-			return
+	_ = s.store.UpdateTasks(func(tasks []ImageTask) []ImageTask {
+		for i := range tasks {
+			if tasks[i].ID == id {
+				tasks[i].Status = status
+				tasks[i].Error = errText
+				tasks[i].Data = data
+				tasks[i].UpdatedAt = nowISO()
+				return tasks
+			}
 		}
-	}
+		return tasks
+	})
 }
 func (s *Server) handleImageTaskGeneration(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.requireIdentity(w, r)
@@ -203,7 +203,7 @@ func (s *Server) handleImageTaskGeneration(w http.ResponseWriter, r *http.Reques
 		for i := 0; i < b.N; i++ {
 			items, err := s.generateImageWithPool(ctx, b.Prompt, b.Model, b.Size, b.Resolution, nil)
 			if err != nil {
-				s.refundImage(identity, b.N)
+				s.refundImage(identity, b.N-len(data))
 				if ctx.Err() != nil {
 					s.updateTaskStatus(task.ID, "canceled", "canceled", nil)
 					s.logCallFailure(callID, "/api/image-tasks/generations", b.Model, "文生图任务", errors.New("canceled"), map[string]any{"task_id": task.ID})
@@ -216,7 +216,7 @@ func (s *Server) handleImageTaskGeneration(w http.ResponseWriter, r *http.Reques
 			for _, res := range items {
 				rel, url, err := s.saveImage(r, res.Bytes)
 				if err != nil {
-					s.refundImage(identity, b.N)
+					s.refundImage(identity, b.N-len(data))
 					s.updateTaskStatus(task.ID, "error", err.Error(), nil)
 					return
 				}
@@ -579,14 +579,15 @@ func (s *Server) upsertChatConversationFromStream(id *Identity, b map[string]any
 	if assistantText != "" {
 		item["last_text"] = truncateText(assistantText, 500)
 	}
-	items := s.store.LoadList("chat_conversations.json")
-	out := []map[string]any{item}
-	for _, it := range items {
-		if strAny(it["id"], "") != convID {
-			out = append(out, it)
+	_ = s.store.UpdateList("chat_conversations.json", func(items []map[string]any) []map[string]any {
+		out := []map[string]any{item}
+		for _, it := range items {
+			if strAny(it["id"], "") != convID {
+				out = append(out, it)
+			}
 		}
-	}
-	_ = s.store.SaveList("chat_conversations.json", out)
+		return out
+	})
 }
 
 func (s *Server) handleChatAccountTypes(w http.ResponseWriter, r *http.Request) {
@@ -641,14 +642,26 @@ func (s *Server) handleChatConversations(w http.ResponseWriter, r *http.Request)
 		if strings.TrimSpace(strAny(b["created_at"], "")) == "" {
 			b["created_at"] = nowISO()
 		}
-		items := s.store.LoadList("chat_conversations.json")
-		out := []map[string]any{b}
-		for _, it := range items {
-			if strAny(it["id"], "") != strAny(b["id"], "") {
+		conflict := false
+		_ = s.store.UpdateList("chat_conversations.json", func(items []map[string]any) []map[string]any {
+			out := []map[string]any{b}
+			for _, it := range items {
+				if strAny(it["id"], "") == strAny(b["id"], "") {
+					owner := strAny(it["owner_id"], "")
+					if owner != "" && owner != identity.ID && identity.Role != "admin" {
+						conflict = true
+						return items
+					}
+					continue
+				}
 				out = append(out, it)
 			}
+			return out
+		})
+		if conflict {
+			writeErr(w, 403, "不能覆盖其他用户的会话")
+			return
 		}
-		_ = s.store.SaveList("chat_conversations.json", out)
 		writeJSON(w, 200, map[string]any{"item": b})
 		return
 	}
@@ -710,8 +723,10 @@ func (s *Server) handleGalleryPublish(w http.ResponseWriter, r *http.Request) {
 	}
 	rel := relClean(strAny(b["image_rel"], strAny(b["path"], strAny(b["url"], ""))))
 	rel = relFromURL(rel)
-	if rel == "" {
-		writeErr(w, 400, "image_rel is required")
+	var err error
+	rel, err = safeImageRel(rel)
+	if err != nil {
+		writeErr(w, 400, "invalid image_rel")
 		return
 	}
 	it := GalleryItem{ID: randID(8), ImageRel: rel, PublisherID: id.ID, PublisherName: id.Name, Prompt: strAny(b["prompt"], ""), Model: strAny(b["model"], "gpt-image-2"), Size: strAny(b["size"], ""), CreatedAt: time.Now().Unix(), Status: "visible"}
@@ -735,7 +750,10 @@ func (s *Server) handleGalleryPublishedBatch(w http.ResponseWriter, r *http.Requ
 	}
 	res := map[string]bool{}
 	for _, p := range append(b.Paths, b.ImageRels...) {
-		rel := relClean(p)
+		rel, err := safeImageRel(p)
+		if err != nil {
+			continue
+		}
 		res[rel] = set[rel]
 	}
 	writeJSON(w, 200, map[string]any{"items": res})
@@ -770,7 +788,12 @@ func (s *Server) handleGalleryItem(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"item": s.publicGalleryItem(r, items[idx])})
 		return
 	}
-	if _, ok := s.requireIdentity(w, r); !ok {
+	identity, ok := s.requireIdentity(w, r)
+	if !ok {
+		return
+	}
+	if identity.Role != "admin" && items[idx].PublisherID != identity.ID {
+		writeErr(w, 403, "只能修改自己发布的 gallery item")
 		return
 	}
 	if r.Method == http.MethodDelete {

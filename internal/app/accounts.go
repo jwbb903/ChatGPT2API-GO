@@ -195,7 +195,7 @@ func mergeAccount(dst *Account, src Account) {
 	if src.Status != "" {
 		dst.Status = src.Status
 	}
-	if src.Quota != 0 {
+	if !src.ImageQuotaUnknown || src.Quota != 0 || len(src.LimitsProgress) > 0 {
 		dst.Quota = src.Quota
 	}
 	if src.Email != nil {
