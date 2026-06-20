@@ -33,6 +33,7 @@ const chatGPTBaseURL = "https://chatgpt.com"
 const defaultClientVersion = "prod-be885abbfcfe7b1f511e88b3003d9ee44757fbad"
 const defaultClientBuild = "5955942"
 const defaultPowScript = "https://chatgpt.com/backend-api/sentinel/sdk.js"
+const bootstrapMaxAttempts = 3
 
 type UpstreamClient struct {
 	token           string
@@ -228,6 +229,30 @@ func (c *UpstreamClient) bootstrapHeaders() http.Header {
 	return h
 }
 func (c *UpstreamClient) bootstrap(ctx context.Context) error {
+	var lastErr error
+	for attempt := 1; attempt <= bootstrapMaxAttempts; attempt++ {
+		if attempt > 1 {
+			delay := time.Duration(attempt-1) * 300 * time.Millisecond
+			traceLogf(ctx, "│  ├─ bootstrap retry attempt=%d delay=%s previous_error=%v", attempt, delay, lastErr)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		err := c.bootstrapOnce(ctx)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !isRetryableBootstrapError(err) {
+			return err
+		}
+	}
+	return lastErr
+}
+
+func (c *UpstreamClient) bootstrapOnce(ctx context.Context) error {
 	traceLogf(ctx, "│  ├─ step bootstrap ChatGPT home page")
 	start := time.Now()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, chatGPTBaseURL+"/", nil)
@@ -236,12 +261,16 @@ func (c *UpstreamClient) bootstrap(ctx context.Context) error {
 	resp, err := c.client.Do(req)
 	if err != nil {
 		traceLogf(ctx, "│  └─ bootstrap failed duration=%s error=%v", traceHTTPDuration(start), err)
-		return err
+		return fmt.Errorf("bootstrap failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		traceLogf(ctx, "│  └─ bootstrap response status=%d duration=%s body=%s", resp.StatusCode, traceHTTPDuration(start), truncateText(string(b), 800))
+		location := strings.TrimSpace(resp.Header.Get("Location"))
+		traceLogf(ctx, "│  └─ bootstrap response status=%d location=%q duration=%s body=%s", resp.StatusCode, location, traceHTTPDuration(start), truncateText(string(b), 800))
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return fmt.Errorf("bootstrap redirect: status=%d location=%s body=%s", resp.StatusCode, location, string(b))
+		}
 		return fmt.Errorf("bootstrap failed: status=%d body=%s", resp.StatusCode, string(b))
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
@@ -251,6 +280,28 @@ func (c *UpstreamClient) bootstrap(ctx context.Context) error {
 	}
 	traceLogf(ctx, "│  └─ bootstrap ok status=%d duration=%s pow_scripts=%d data_build=%q", resp.StatusCode, traceHTTPDuration(start), len(c.scriptSources), c.dataBuild)
 	return nil
+}
+
+func isRetryableBootstrapError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	if !strings.Contains(text, "bootstrap") {
+		return false
+	}
+	if strings.Contains(text, "status=401") || strings.Contains(text, "status=403") {
+		return false
+	}
+	if strings.Contains(text, "redirect") || strings.Contains(text, "status=3") || strings.Contains(text, "status=429") {
+		return true
+	}
+	for _, code := range []string{"status=500", "status=502", "status=503", "status=504"} {
+		if strings.Contains(text, code) {
+			return true
+		}
+	}
+	return !strings.Contains(text, "status=")
 }
 func (c *UpstreamClient) chatRequirements(ctx context.Context) (chatRequirements, error) {
 	traceLogf(ctx, "│  ├─ step build sentinel chat requirements")
@@ -1499,10 +1550,12 @@ func (c *UpstreamClient) toConversationMessages(ctx context.Context, messages []
 }
 
 func upstreamConversationRoleAndContent(m map[string]any) (string, any) {
-	role := strings.TrimSpace(strAny(m["role"], "user"))
+	role := strings.ToLower(strings.TrimSpace(strAny(m["role"], "user")))
 	switch role {
-	case "system", "assistant", "user":
+	case "assistant", "user":
 		return role, m["content"]
+	case "system", "developer":
+		return "user", "System instructions:\n" + messageTextAny(m["content"])
 	case "tool", "function":
 		name := firstNonEmpty(strAny(m["name"], ""), strAny(m["tool_call_id"], ""), strAny(m["tool_use_id"], ""), "tool")
 		return "user", "Tool result from " + name + ":\n" + messageTextAny(m["content"])

@@ -65,7 +65,7 @@ func (s *Server) streamTextWithRetryMode(ctx context.Context, messages []map[str
 			}
 			traceLogf(ctx, "│  └─ text account attempt %d failed emitted=%v error=%v", attempt, emitted, err)
 			s.markAccountFailure(token, err, false)
-			if !emitted && (isInvalidTokenErrorText(err) || isUpstreamBlockErrorText(err) || isTurnstileRequirementErrorText(err)) {
+			if !emitted && (isInvalidTokenErrorText(err) || isUpstreamBlockErrorText(err) || isTurnstileRequirementErrorText(err) || isRetryableBootstrapError(err)) {
 				traceLogf(ctx, "│  ├─ retry with another text account")
 				continue
 			}

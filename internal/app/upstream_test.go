@@ -20,10 +20,17 @@ func (f upstreamDoerFunc) Do(req *http.Request) (*http.Response, error) {
 }
 
 func upstreamTestResponse(status int, body string) *http.Response {
+	return upstreamTestResponseWithHeader(status, body, http.Header{})
+}
+
+func upstreamTestResponseWithHeader(status int, body string, header http.Header) *http.Response {
+	if header == nil {
+		header = http.Header{}
+	}
 	return &http.Response{
 		StatusCode: status,
 		Body:       io.NopCloser(strings.NewReader(body)),
-		Header:     http.Header{},
+		Header:     header,
 	}
 }
 
@@ -67,6 +74,55 @@ func TestBootstrapUsesDocumentHeadersOnly(t *testing.T) {
 	}
 	if err := client.bootstrap(context.Background()); err != nil {
 		t.Fatalf("bootstrap returned error: %v", err)
+	}
+}
+
+func TestBootstrapRetriesRedirectAndThenSucceeds(t *testing.T) {
+	attempts := 0
+	client := &UpstreamClient{
+		userAgent:       "test-agent",
+		secCHUA:         `"Microsoft Edge";v="143"`,
+		secCHUAMobile:   "?0",
+		secCHUAPlatform: `"Windows"`,
+		client: upstreamDoerFunc(func(req *http.Request) (*http.Response, error) {
+			attempts++
+			if attempts == 1 {
+				h := http.Header{}
+				h.Set("Location", "/auth/login")
+				return upstreamTestResponseWithHeader(302, "", h), nil
+			}
+			return upstreamTestResponse(200, `<html data-build="retry-build"><script src="/c/retry/_/x.js"></script></html>`), nil
+		}),
+	}
+	if err := client.bootstrap(context.Background()); err != nil {
+		t.Fatalf("bootstrap returned error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if client.dataBuild != "c/retry/_" {
+		t.Fatalf("dataBuild = %q, want c/retry/_", client.dataBuild)
+	}
+}
+
+func TestBootstrapRedirectErrorIncludesLocation(t *testing.T) {
+	client := &UpstreamClient{
+		userAgent:       "test-agent",
+		secCHUA:         `"Microsoft Edge";v="143"`,
+		secCHUAMobile:   "?0",
+		secCHUAPlatform: `"Windows"`,
+		client: upstreamDoerFunc(func(req *http.Request) (*http.Response, error) {
+			h := http.Header{}
+			h.Set("Location", "/auth/login")
+			return upstreamTestResponseWithHeader(302, "", h), nil
+		}),
+	}
+	err := client.bootstrap(context.Background())
+	if err == nil {
+		t.Fatal("expected bootstrap error")
+	}
+	if !strings.Contains(err.Error(), "bootstrap redirect: status=302") || !strings.Contains(err.Error(), "/auth/login") {
+		t.Fatalf("error = %q, want redirect status and location", err.Error())
 	}
 }
 

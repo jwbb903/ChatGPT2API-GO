@@ -35,7 +35,62 @@ func (s *Server) messagesFromBodyWithFiles(b map[string]any) ([]map[string]any, 
 		item["content"] = content
 		out = append(out, item)
 	}
-	return out, nil
+	return normalizePromptMessages(out), nil
+}
+
+func normalizePromptMessages(messages []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(messages))
+	systemParts := []string{}
+	flushSystem := func() {
+		if len(systemParts) == 0 {
+			return
+		}
+		out = append(out, map[string]any{"role": "system", "content": strings.Join(systemParts, "\n\n")})
+		systemParts = nil
+	}
+	for _, message := range messages {
+		item := map[string]any{}
+		for key, value := range message {
+			item[key] = value
+		}
+		role := strings.ToLower(strings.TrimSpace(strAny(item["role"], "user")))
+		if role == "developer" {
+			role = "system"
+		}
+		if role == "system" {
+			if text := strings.TrimSpace(messageTextAny(item["content"])); text != "" {
+				systemParts = append(systemParts, text)
+			}
+			continue
+		}
+		flushSystem()
+		if role == "" {
+			role = "user"
+		}
+		item["role"] = role
+		out = append(out, item)
+	}
+	flushSystem()
+	return out
+}
+
+func prependOrMergeSystemPrompt(messages []map[string]any, prompt string) []map[string]any {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return messages
+	}
+	messages = normalizePromptMessages(messages)
+	if len(messages) > 0 && strings.ToLower(strings.TrimSpace(strAny(messages[0]["role"], ""))) == "system" {
+		item := map[string]any{}
+		for key, value := range messages[0] {
+			item[key] = value
+		}
+		existing := strings.TrimSpace(messageTextAny(item["content"]))
+		item["content"] = strings.TrimSpace(strings.Join([]string{existing, prompt}, "\n\n"))
+		out := append([]map[string]any{item}, messages[1:]...)
+		return out
+	}
+	return append([]map[string]any{{"role": "system", "content": prompt}}, messages...)
 }
 
 func expandInputFiles(content any) (any, error) {
@@ -294,7 +349,7 @@ func (s *Server) chatCompletionMessages(body map[string]any) ([]map[string]any, 
 	if toolPrompt == "" {
 		return messages, nil
 	}
-	return append([]map[string]any{{"role": "system", "content": toolPrompt}}, messages...), nil
+	return prependOrMergeSystemPrompt(messages, toolPrompt), nil
 }
 
 func (s *Server) responseMessagesFromBody(body map[string]any) ([]map[string]any, error) {
@@ -345,7 +400,7 @@ func (s *Server) responseMessagesFromBody(body map[string]any) ([]map[string]any
 	if len(messages) == 0 {
 		return s.messagesFromBodyWithFiles(body)
 	}
-	return messages, nil
+	return normalizePromptMessages(messages), nil
 }
 
 func messagesPlainText(messages []map[string]any) string {
