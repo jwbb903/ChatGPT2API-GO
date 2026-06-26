@@ -67,7 +67,7 @@ func (s *Server) ensureCurlImpersonateBinary() (string, error) {
 }
 
 func curlImpersonateCandidates() []string {
-	return []string{"curl_edge101", "curl_chrome116", "curl_chrome110", "curl_chrome101", "curl-impersonate", "curl"}
+	return []string{"curl_edge101", "curl_chrome116", "curl_chrome110", "curl_chrome101", "curl-impersonate", "curl-impersonate-chrome"}
 }
 
 func findCurlBinaryInDir(dir string) string {

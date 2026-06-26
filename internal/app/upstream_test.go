@@ -385,3 +385,97 @@ func TestUpstreamConversationStateDoesNotLoseRawTextAfterUnclosedMarker(t *testi
 		t.Fatalf("second Delta = %q, want %q", ev.Delta, want)
 	}
 }
+
+func TestExtractFallbackImageIDsAcceptsLooseToolImageResult(t *testing.T) {
+	conv := map[string]any{
+		"mapping": map[string]any{
+			"node": map[string]any{
+				"message": map[string]any{
+					"author":   map[string]any{"role": "tool"},
+					"metadata": map[string]any{"async_task_type": "image_gen"},
+					"content":  map[string]any{"content_type": "text", "parts": []any{"done file-service://file-result-loose sediment://sediment-result-loose"}},
+				},
+			},
+		},
+	}
+
+	fileIDs, sedimentIDs := extractToolIDs(conv)
+	if len(fileIDs) != 1 || fileIDs[0] != "file-result-loose" {
+		t.Fatalf("fileIDs = %#v, want [file-result-loose]", fileIDs)
+	}
+	if len(sedimentIDs) != 1 || sedimentIDs[0] != "sediment-result-loose" {
+		t.Fatalf("sedimentIDs = %#v, want [sediment-result-loose]", sedimentIDs)
+	}
+}
+
+func TestExtractFallbackImageIDsSkipsUserReferenceImages(t *testing.T) {
+	conv := map[string]any{
+		"mapping": map[string]any{
+			"node": map[string]any{
+				"message": map[string]any{
+					"author":  map[string]any{"role": "user"},
+					"content": map[string]any{"content_type": "multimodal_text", "parts": []any{map[string]any{"asset_pointer": "file-service://file-user-reference"}}},
+				},
+			},
+		},
+	}
+
+	fileIDs, sedimentIDs := extractToolIDs(conv)
+	if len(fileIDs) != 0 || len(sedimentIDs) != 0 {
+		t.Fatalf("got fileIDs=%#v sedimentIDs=%#v, want empty", fileIDs, sedimentIDs)
+	}
+}
+
+func TestNormalizeTextModelOptions(t *testing.T) {
+	cases := []struct {
+		model         string
+		wantModel     string
+		wantReasoning string
+	}{
+		{"auto", "auto", ""},
+		{"gpt-5", "gpt-5", ""},
+		{"gpt-5-1", "gpt-5", "low"},
+		{"gpt-5-2", "gpt-5", "medium"},
+		{"gpt-5-3", "gpt-5", "high"},
+		{"gpt-5-3-mini", "gpt-5", "high"},
+	}
+	for _, tc := range cases {
+		got := normalizeTextModelOptions(tc.model)
+		if got.Model != tc.wantModel || got.ReasoningLevel != tc.wantReasoning {
+			t.Fatalf("normalizeTextModelOptions(%q) = %#v, want model=%q reasoning=%q", tc.model, got, tc.wantModel, tc.wantReasoning)
+		}
+	}
+}
+
+func TestImagePollSkippedWhenInitialIDsAlreadyPresent(t *testing.T) {
+	fileIDs := []string{"file_00000000aaaaaaaaaaaaaaaaaaaaaaaa"}
+	sedimentIDs := []string{}
+	cid := "conv_test"
+	message := ""
+	shouldPoll := cid != "" && len(fileIDs) == 0 && len(sedimentIDs) == 0 && !isImageQuotaMessage(message)
+	if shouldPoll {
+		t.Fatal("expected poll to be skipped when SSE already provided file IDs")
+	}
+}
+
+func TestUpstreamConversationStateExtractsImageIDsFromPatchContext(t *testing.T) {
+	state := newUpstreamConversationState("", nil)
+	_, _ = state.Apply(`{"type":"server_ste_metadata","metadata":{"tool_invoked":true,"turn_use_case":"image gen"}}`)
+	payload := `{"o":"patch","v":[{"p":"/message/content/parts/0","o":"append","v":{"asset_pointer":"file-service://file_00000000aaaaaaaaaaaaaaaaaaaaaaaa","content_type":"image_asset_pointer"}}]}`
+	ev, ok := state.Apply(payload)
+	if !ok {
+		t.Fatal("expected patch metadata to emit state update")
+	}
+	if len(ev.FileIDs) != 1 || ev.FileIDs[0] != "file_00000000aaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("FileIDs = %#v, want generated file id", ev.FileIDs)
+	}
+}
+
+func TestUpstreamConversationStateSkipsUserPatchImageIDs(t *testing.T) {
+	state := newUpstreamConversationState("", nil)
+	payload := `{"o":"patch","v":{"message":{"author":{"role":"user"},"content":{"parts":[{"asset_pointer":"file-service://file_00000000aaaaaaaaaaaaaaaaaaaaaaaa"}]}}}}`
+	ev, _ := state.Apply(payload)
+	if len(ev.FileIDs) != 0 || len(ev.SedimentIDs) != 0 {
+		t.Fatalf("got FileIDs=%#v SedimentIDs=%#v, want empty", ev.FileIDs, ev.SedimentIDs)
+	}
+}

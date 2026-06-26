@@ -5,13 +5,20 @@ build/
 dist/
 wheels/
 *.egg-info
-web_dist
-# Virtual environments
-.venv
-.idea
-data
+
+# Build outputs
+bin/
+release/
+web_dist/
+
+# Local runtime data
+.venv/
+.idea/
+data/
 config.json
 edit
+
+test.md
 
 docker-compose-local.yml
 

@@ -73,12 +73,9 @@ func (s *Server) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAdmin(w, r); !ok {
 		return
 	}
-	transport := strings.ToLower(strings.TrimSpace(os.Getenv("CHATGPT2API_UPSTREAM_TRANSPORT")))
-	if transport == "" {
-		transport = "tls-client"
-	}
+	transport := "curl-impersonate"
 	bin := strings.TrimSpace(os.Getenv("CHATGPT2API_CURL_IMPERSONATE_BIN"))
-	if bin == "" && (transport == "curl" || transport == "curl-impersonate" || transport == "impersonate") {
+	if bin == "" {
 		if p, err := s.ensureCurlImpersonateBinary(); err == nil {
 			bin = p
 		}

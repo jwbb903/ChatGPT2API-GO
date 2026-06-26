@@ -18,8 +18,6 @@ import (
 	"math/rand"
 	"mime"
 	stdhttp "net/http"
-	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -28,7 +26,6 @@ import (
 	"unicode/utf8"
 
 	http "github.com/bogdanfinn/fhttp"
-	tlsclient "github.com/bogdanfinn/tls-client"
 )
 
 const chatGPTBaseURL = "https://chatgpt.com"
@@ -100,27 +97,7 @@ func NewUpstreamClient(token, proxyURL string, binGetter func() (string, error))
 func NewUpstreamClientForAccount(account Account, proxyURL string, binGetter func() (string, error)) (*UpstreamClient, error) {
 	token := account.AccessToken
 	fp := accountFingerprint(account)
-	transport := strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("CHATGPT2API_UPSTREAM_TRANSPORT"), fp["impersonate"])))
-	if transport == "curl" || transport == "curl-impersonate" || transport == "impersonate" {
-		client, err := newCurlImpersonateClient(proxyURL, binGetter)
-		if err != nil {
-			return nil, err
-		}
-		return &UpstreamClient{token: token, client: client, userAgent: fp["user-agent"], deviceID: fp["oai-device-id"], sessionID: fp["oai-session-id"], secCHUA: fp["sec-ch-ua"], secCHUAMobile: fp["sec-ch-ua-mobile"], secCHUAPlatform: fp["sec-ch-ua-platform"], scriptSources: []string{defaultPowScript}}, nil
-	}
-	options := []tlsclient.HttpClientOption{
-		tlsclient.WithClientProfile(upstreamTLSProfile()),
-		tlsclient.WithTimeoutSeconds(0),
-		// ChatGPT Web 当前主要走 H2；禁用 H3 可避免部分代理/移动网络下 QUIC 行为不一致。
-		tlsclient.WithDisableHttp3(),
-	}
-	if strings.TrimSpace(proxyURL) != "" {
-		if _, err := url.Parse(proxyURL); err != nil {
-			return nil, err
-		}
-		options = append(options, tlsclient.WithProxyUrl(proxyURL))
-	}
-	client, err := tlsclient.NewHttpClient(tlsclient.NewNoopLogger(), options...)
+	client, err := newCurlImpersonateClient(proxyURL, binGetter)
 	if err != nil {
 		return nil, err
 	}
@@ -450,6 +427,7 @@ func (c *UpstreamClient) streamTextConversationEvents(ctx context.Context, messa
 		if model == "" {
 			model = "auto"
 		}
+		modelOpts := normalizeTextModelOptions(model)
 		parentID := uuid4()
 		conversationID = strings.TrimSpace(conversationID)
 		if conversationID != "" {
@@ -465,7 +443,10 @@ func (c *UpstreamClient) streamTextConversationEvents(ctx context.Context, messa
 			errs <- err
 			return
 		}
-		payload := map[string]any{"action": "next", "messages": conversationMessages, "model": model, "parent_message_id": parentID, "conversation_mode": map[string]any{"kind": "primary_assistant"}, "conversation_origin": nil, "force_paragen": false, "force_paragen_model_slug": "", "force_rate_limit": false, "force_use_sse": true, "history_and_training_disabled": historyDisabled, "reset_rate_limits": false, "suggestions": []any{}, "supported_encodings": []string{}, "system_hints": []string{}, "timezone": "Asia/Shanghai", "timezone_offset_min": -480, "variant_purpose": "comparison_implicit", "websocket_request_id": uuid4(), "client_contextual_info": clientContext()}
+		payload := map[string]any{"action": "next", "messages": conversationMessages, "model": modelOpts.Model, "parent_message_id": parentID, "conversation_mode": map[string]any{"kind": "primary_assistant"}, "conversation_origin": nil, "force_paragen": false, "force_paragen_model_slug": "", "force_rate_limit": false, "force_use_sse": true, "history_and_training_disabled": historyDisabled, "reset_rate_limits": false, "suggestions": []any{}, "supported_encodings": []string{}, "system_hints": []string{}, "timezone": "Asia/Shanghai", "timezone_offset_min": -480, "variant_purpose": "comparison_implicit", "websocket_request_id": uuid4(), "client_contextual_info": clientContext()}
+		if modelOpts.ReasoningLevel != "" {
+			payload["thinking_effort"] = modelOpts.ReasoningLevel
+		}
 		if conversationID != "" {
 			payload["conversation_id"] = conversationID
 			payload["history_and_training_disabled"] = false
@@ -561,6 +542,8 @@ func (c *UpstreamClient) GenerateImage(ctx context.Context, prompt, model, size,
 				if meta.ConversationID != "" {
 					cid = meta.ConversationID
 				}
+				fileIDs = unique(append(fileIDs, meta.FileIDs...))
+				sedimentIDs = unique(append(sedimentIDs, meta.SedimentIDs...))
 				if meta.Delta != "" || state.Text != "" {
 					message = state.Text
 				}
@@ -578,7 +561,7 @@ func (c *UpstreamClient) GenerateImage(ctx context.Context, prompt, model, size,
 	if message != "" && len(fileIDs) == 0 && len(sedimentIDs) == 0 && (state.Blocked || state.ToolInvoked == false || state.TurnUseCase == "text") {
 		return nil, errors.New(cleanImageMessage(message))
 	}
-	if cid != "" && !isImageQuotaMessage(message) {
+	if cid != "" && len(fileIDs) == 0 && len(sedimentIDs) == 0 && !isImageQuotaMessage(message) {
 		traceLogf(ctx, "│  ├─ step poll final image tool records conversation=%s timeout=%s interval=%s", maskedValue(cid), opts.Timeout, opts.PollInterval)
 		f, s := c.pollImageIDs(ctx, cid, opts.Timeout, opts.PollInterval, opts.PollInitialWait)
 		fileIDs = append(fileIDs, f...)
@@ -735,6 +718,7 @@ func (c *UpstreamClient) pollImageIDs(ctx context.Context, cid string, timeout, 
 		if err == nil {
 			backoff = interval
 			f, s := extractToolIDs(conv)
+			traceLogf(ctx, "│  │  image poll extracted file_ids=%d sediment_ids=%d", len(f), len(s))
 			if len(f) > 0 || len(s) > 0 {
 				return f, s
 			}
@@ -1202,8 +1186,13 @@ func (s *upstreamConversationState) snapshotMeta() UpstreamTextEvent {
 func (s *upstreamConversationState) updateState(ev map[string]any) {
 	meta := upstreamTextMetaFromMap(ev)
 	s.mergeMeta(meta)
-	if isImageToolEvent(ev) {
-		f, sed := imageIDsFromPayload(ev)
+	payloadBytes, _ := json.Marshal(ev)
+	payloadText := string(payloadBytes)
+	isPatch := strAny(ev["o"], "") == "patch"
+	isUser := isUserMessageEvent(ev)
+	imageContext := isImageToolEvent(ev) || (s.ToolInvoked == true && !isUser) || (isPatch && !isUser && (strings.Contains(payloadText, "asset_pointer") || strings.Contains(payloadText, "file-service://") || strings.Contains(payloadText, "sediment://")))
+	if imageContext {
+		f, sed := imageIDsFromText(payloadText)
 		s.FileIDs = unique(append(s.FileIDs, f...))
 		s.SedimentIDs = unique(append(s.SedimentIDs, sed...))
 	}
@@ -1390,6 +1379,23 @@ func assistantHistoryMessages(messages []map[string]any) []string {
 	}
 	return out
 }
+func isUserMessageEvent(ev map[string]any) bool {
+	for _, cand := range []any{ev, ev["v"]} {
+		m, ok := cand.(map[string]any)
+		if !ok {
+			continue
+		}
+		msg, ok := m["message"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if isUserMessage(msg) {
+			return true
+		}
+	}
+	return false
+}
+
 func isImageToolEvent(ev map[string]any) bool {
 	for _, cand := range []any{ev, ev["v"]} {
 		m, ok := cand.(map[string]any)
@@ -1409,7 +1415,32 @@ func isImageToolEvent(ev map[string]any) bool {
 
 func imageIDsFromPayload(v any) ([]string, []string) {
 	b, _ := json.Marshal(v)
-	return imageIDsFromText(string(b))
+	fileIDs, sedimentIDs := imageIDsFromText(string(b))
+	fileIDs = append(fileIDs, bareFileAssetPointerIDs(v)...)
+	return unique(fileIDs), unique(sedimentIDs)
+}
+
+func bareFileAssetPointerIDs(v any) []string {
+	out := []string{}
+	var walk func(any)
+	walk = func(value any) {
+		switch item := value.(type) {
+		case map[string]any:
+			asset := strings.TrimSpace(strAny(item["asset_pointer"], ""))
+			if strings.HasPrefix(asset, "file_") && asset != "file_upload" {
+				out = append(out, asset)
+			}
+			for _, child := range item {
+				walk(child)
+			}
+		case []any:
+			for _, child := range item {
+				walk(child)
+			}
+		}
+	}
+	walk(v)
+	return unique(out)
 }
 
 func imageIDsFromText(text string) ([]string, []string) {
@@ -1420,16 +1451,11 @@ func imageIDsFromText(text string) ([]string, []string) {
 			fileIDs = append(fileIDs, m[1])
 		}
 	}
-	for _, m := range regexp.MustCompile(`\bfile[_-][A-Za-z0-9][A-Za-z0-9_-]*`).FindAllStringSubmatch(text, -1) {
+	for _, m := range regexp.MustCompile(`\bfile_00000000[a-f0-9]{24}\b`).FindAllStringSubmatch(text, -1) {
 		if len(m) == 0 {
 			continue
 		}
-		candidate := m[0]
-		lower := strings.ToLower(candidate)
-		if lower == "file_upload" || strings.HasPrefix(lower, "file-service") {
-			continue
-		}
-		fileIDs = append(fileIDs, candidate)
+		fileIDs = append(fileIDs, m[0])
 	}
 	for _, m := range regexp.MustCompile(`sediment://([A-Za-z0-9_-]+)`).FindAllStringSubmatch(text, -1) {
 		if len(m) > 1 {
@@ -1571,7 +1597,10 @@ func extractFallbackImageIDs(conv map[string]any) ([]string, []string) {
 				continue
 			}
 			msg, ok := node["message"].(map[string]any)
-			if !ok || !isFallbackImageResultMessage(msg) {
+			if !ok || isUserMessage(msg) {
+				continue
+			}
+			if !isFallbackImageResultMessage(msg) && !looksLikeImageResultMessage(msg) {
 				continue
 			}
 			f, s := imageIDsFromPayload(msg)
@@ -1580,6 +1609,56 @@ func extractFallbackImageIDs(conv map[string]any) ([]string, []string) {
 		}
 	}
 	return unique(fileIDs), unique(sedimentIDs)
+}
+
+func isUserMessage(msg map[string]any) bool {
+	author, _ := msg["author"].(map[string]any)
+	return strAny(author["role"], "") == "user"
+}
+
+func looksLikeImageResultMessage(msg map[string]any) bool {
+	author, _ := msg["author"].(map[string]any)
+	metadata, _ := msg["metadata"].(map[string]any)
+	content, _ := msg["content"].(map[string]any)
+	role := strings.TrimSpace(strings.ToLower(strAny(author["role"], "")))
+	if role != "tool" && role != "assistant" {
+		return false
+	}
+	isImageGen := strAny(metadata["async_task_type"], "") == "image_gen"
+	hasAsset := hasImageAssetPointer(content) || hasImageAssetPointer(metadata)
+	if role == "assistant" && !isImageGen && !hasAsset {
+		return false
+	}
+	if isImageGen || hasAsset {
+		return true
+	}
+	f, s := imageIDsFromPayload(map[string]any{"content": content, "metadata": metadata})
+	return len(f) > 0 || len(s) > 0
+}
+
+func hasImageAssetPointer(value any) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		if strAny(v["content_type"], "") == "image_asset_pointer" {
+			return true
+		}
+		asset := strAny(v["asset_pointer"], "")
+		if strings.HasPrefix(asset, "file-service://") || strings.HasPrefix(asset, "sediment://") {
+			return true
+		}
+		for _, item := range v {
+			if hasImageAssetPointer(item) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if hasImageAssetPointer(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isPythonImageToolMessage(msg map[string]any) bool {
@@ -1695,6 +1774,27 @@ func normalizeAccountType(value string) string {
 		return "Enterprise"
 	default:
 		return raw
+	}
+}
+
+type textModelOptions struct {
+	Model          string
+	ReasoningLevel string
+}
+
+func normalizeTextModelOptions(model string) textModelOptions {
+	slug := strings.TrimSpace(strings.ToLower(model))
+	switch slug {
+	case "", "auto":
+		return textModelOptions{Model: "auto"}
+	case "gpt-5-1", "gpt-5-mini":
+		return textModelOptions{Model: "gpt-5", ReasoningLevel: "low"}
+	case "gpt-5-2":
+		return textModelOptions{Model: "gpt-5", ReasoningLevel: "medium"}
+	case "gpt-5-3", "gpt-5-3-mini":
+		return textModelOptions{Model: "gpt-5", ReasoningLevel: "high"}
+	default:
+		return textModelOptions{Model: model}
 	}
 }
 
